@@ -172,6 +172,12 @@ def grade(b):
     return {"text": text, "error": err}
 
 
+class Server(ThreadingHTTPServer):
+    # On Windows SO_REUSEADDR lets a second copy bind the same port silently.
+    allow_reuse_address = os.name != "nt"
+    daemon_threads = True
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -238,7 +244,14 @@ class H(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    srv = ThreadingHTTPServer(("127.0.0.1", PORT), H)
+    try:
+        srv = Server(("127.0.0.1", PORT), H)
+    except OSError:
+        # Most often the room is already open from an earlier double-click; just show it again.
+        print("Port %d is busy, so the room is probably already running. Opening it." % PORT)
+        if "--no-browser" not in sys.argv:
+            launch_browser()
+        sys.exit(0)
     if "--no-browser" not in sys.argv:
         launch_browser()
     print("Interview Room on %s using the %s CLI. Close this window to stop." % (URL, backend.BACKEND))
