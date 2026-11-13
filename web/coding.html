@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-Assisted Coding</title>
+<link rel="stylesheet" href="/web/vendor/codemirror.min.css">
+<link rel="stylesheet" href="/web/vendor/material-darker.min.css">
+<link rel="stylesheet" href="/web/style.css">
+<style>
+body { font-size: 14px; }
+#room { flex-direction: column; }
+.top { display: flex; align-items: center; gap: 12px; padding: 6px 14px; background: #111215; font-size: 13px; color: var(--dim); flex: none; }
+.top .rec { color: var(--red); }
+#clock { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+#clock.over { color: var(--amber); }
+.top .sp { margin-left: auto; }
+.top button { padding: 5px 12px; }
+.top button.off { background: #5a1d1d; border-color: #5a1d1d; }
+.cols { flex: 1; display: flex; min-height: 0; }
+.col { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+#colL { width: 300px; flex: none; }
+#colM { flex: 1; min-width: 0; }
+#colR { width: 360px; flex: none; border-right: 0; }
+.mini { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 8px; flex: none; }
+.mini .tile { border-radius: 8px; }
+.mini .name { font-size: 11px; left: 6px; bottom: 5px; padding: 1px 6px; }
+.mini .av { width: 42%; font-size: 22px; }
+.h { padding: 7px 12px; font-size: 12px; font-weight: 600; color: var(--dim); background: var(--panel); border-bottom: 1px solid var(--line); flex: none; display: flex; align-items: center; gap: 8px; }
+.log { flex: 1; overflow: auto; padding: 6px 12px; min-height: 0; }
+.m.edit { font-size: 12px; color: var(--amber); }
+#inst { flex: none; max-height: 36%; overflow: auto; background: var(--panel); border-bottom: 1px solid var(--line); padding: 8px 14px; }
+#inst h3 { margin: 10px 0 4px; font-size: 14px; }
+#inst h3:first-child { margin-top: 2px; }
+#inst p, #inst li { margin: 4px 0; color: #d5d8dc; font-size: 13px; }
+#inst ul { padding-left: 20px; margin: 4px 0; }
+#inst code { font-family: Consolas, monospace; font-size: 12px; background: #2c2f34; padding: 0 4px; border-radius: 3px; }
+#inst .new { border-left: 3px solid var(--blue); padding-left: 10px; margin-bottom: 10px; }
+.tabs { display: flex; gap: 2px; background: var(--panel); flex: none; padding: 4px 8px 0; }
+.tab { padding: 4px 12px; font-size: 12px; border-radius: 5px 5px 0 0; cursor: pointer; color: var(--dim); font-family: Consolas, monospace; }
+.tab.on { background: #212121; color: var(--text); }
+#ed { flex: 1; min-height: 0; }
+.CodeMirror { height: 100%; font: 13px/1.5 Consolas, "Cascadia Mono", monospace; }
+.ai-line { background: rgba(242, 179, 61, .13); }
+#out { flex: none; height: 24%; display: flex; flex-direction: column; border-top: 1px solid var(--line); min-height: 0; }
+#out .h button { padding: 3px 10px; font-size: 12px; }
+#outText { flex: 1; overflow: auto; margin: 0; padding: 7px 12px; font: 12px/1.45 Consolas, monospace; white-space: pre-wrap; background: #121316; }
+.pass { color: var(--green); } .fail { color: var(--red); }
+#aiBar { display: flex; gap: 6px; margin-bottom: 6px; }
+#aiBar select { padding: 3px 8px; font-size: 12px; }
+#aiP { height: 92px; }
+#src label { display: inline-flex; gap: 6px; align-items: center; margin: 0 14px 0 0; color: var(--text); font-size: 14px; }
+.opt { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+.opt input, .opt select { width: 100%; }
+#saved { width: 100%; }
+#busy { color: var(--dim); font-size: 14px; margin-top: 12px; min-height: 20px; }
+</style>
+</head>
+<body>
+
+<section id="start" class="screen scroll">
+  <div class="card">
+    <a class="back" href="/">&larr; Rooms</a>
+    <h1>AI-assisted coding</h1>
+    <p>A shared editor with a coding agent beside it, the way AI-assisted rounds are run. One Python problem in three parts. Talk through your design before you prompt, review what the agent writes, test it yourself, and ask your interviewer to run the hidden tests when a part is done. After each part they walk through your code with you. You get a report at the end.</p>
+    <div id="src" style="margin-top:16px">
+      <label><input type="radio" name="src" value="new" checked> Write me a fresh problem</label>
+      <label><input type="radio" name="src" value="saved"> Use a saved problem</label>
+    </div>
+    <div id="newOpts" class="opt">
+      <div><label>Theme (optional)</label><input id="topic" placeholder="Anything, or leave blank"></div>
+      <div><label>Difficulty</label><select id="diff"><option>easy</option><option selected>medium</option><option>hard</option></select></div>
+      <div><label>Length</label><select id="mins"><option value="60" selected>60 min</option><option value="45">45 min</option></select></div>
+    </div>
+    <div id="savedOpts" style="display:none"><label>Saved problems (in exercises/)</label><select id="saved"></select></div>
+    <div class="checks" id="checks"></div>
+    <div class="row">
+      <button id="go">Start</button>
+      <button class="ghost" id="close">Close</button>
+    </div>
+    <div id="busy"></div>
+    <div class="hist" id="hist"></div>
+  </div>
+</section>
+
+<section id="room" class="screen">
+  <div class="top">
+    <span class="rec">&#9679; REC</span><span id="clock">00:00</span><span id="title"></span>
+    <span class="sp"></span>
+    <button class="ghost" id="mic">Mute</button>
+    <button class="ghost" id="camBtn">Stop video</button>
+    <button id="end" style="background:var(--red)">End interview</button>
+  </div>
+  <div class="cols">
+    <div class="col" id="colL">
+      <div class="mini">
+        <div class="tile" id="ivTile"><div class="av" id="ivAv">J</div><span class="name" id="ivName"></span></div>
+        <div class="tile" id="meTile"><div class="av me" id="meAv"></div><video id="cam" autoplay muted playsinline></video><span class="name" id="meName"></span></div>
+      </div>
+      <div class="h">Interviewer</div>
+      <div class="log" id="ivLog"></div>
+      <div class="thinking" id="thinking"></div>
+      <div class="say">
+        <div class="interim" id="interim"></div>
+        <textarea id="box" rows="3" placeholder="Just talk, or type and press Enter."></textarea>
+        <div class="sendbar" id="sendbar"></div>
+      </div>
+    </div>
+    <div class="col" id="colM">
+      <div class="h" id="instH" style="cursor:pointer">Instructions <span id="instArrow">(click to hide)</span></div>
+      <div id="inst"></div>
+      <div class="tabs" id="tabs"></div>
+      <div id="ed"></div>
+      <div id="out">
+        <div class="h">Output <span style="margin-left:auto"></span>
+          <button class="ghost" id="runT">Run my tests</button>
+          <button class="ghost" id="runH">Ask to run hidden tests</button>
+        </div>
+        <pre id="outText"></pre>
+      </div>
+    </div>
+    <div class="col" id="colR">
+      <div class="h">AI assistant</div>
+      <div class="log" id="aiLog"></div>
+      <div class="thinking" id="agentBusy"></div>
+      <div class="say">
+        <div id="aiBar">
+          <select id="aiMode" title="Plan writes steps, Edit changes your files, Ask only answers">
+            <option value="plan">Plan</option><option value="edit">Edit</option><option value="ask">Ask</option></select>
+        </div>
+        <textarea id="aiP" placeholder="Prompt the agent. Enter sends, Shift+Enter is a new line."></textarea>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="report" class="screen scroll">
+  <div class="card">
+    <div class="rep" id="rep"></div>
+    <div class="row">
+      <button id="again" disabled>Try again</button>
+      <button class="ghost" id="quit">Close</button>
+    </div>
+  </div>
+</section>
+
+<script src="/web/vendor/codemirror.min.js"></script>
+<script src="/web/vendor/python.min.js"></script>
+<script src="/web/common.js"></script>
+<script>
+let S = null, past = [], inflight = false, agentBusy = false;
+let cm = null, docs = {}, current = "", marks = {};
+
+/* start */
+document.querySelectorAll("input[name=src]").forEach(r => r.onchange = () => {
+  const saved = document.querySelector("input[name=src]:checked").value === "saved";
+  $("newOpts").style.display = saved ? "none" : ""; $("savedOpts").style.display = saved ? "" : "none";
+});
+async function load() {
+  const list = await (await fetch("/api/exercises")).json();
+  $("saved").innerHTML = list.length ? list.map(x => `<option value="${esc(x.id)}">${esc(x.title)} (${esc(x.id.slice(0, 10))})${x.hidden ? "" : ", no hidden tests"}</option>`).join("")
+    : `<option value="">None yet. Every fresh problem is saved here.</option>`;
+  try { past = await (await fetch("/api/history?room=coding")).json(); } catch (e) { past = []; }
+  $("hist").innerHTML = past.length ? "Past runs: " + past.map(h => `${esc(h.name.replace(/_/g, " "))} <b>${h.score}/10</b>`).join(" &middot; ") : "";
+  $("checks").innerHTML = [[L.supported, L.supported ? "Speech transcription available" : "No speech recognition in this browser, so you'll type (use Chrome or Edge)"]]
+    .map(([ok, t]) => `<div class="${ok ? "ok" : "bad"}">${ok ? "&#10003;" : "&#10007;"} ${esc(t)}</div>`).join("");
+}
+$("close").onclick = $("quit").onclick = () => { post("/api/quit"); setTimeout(() => window.close(), 300); };
+$("again").onclick = () => { show("start"); load(); };
+$("instH").onclick = () => { const h = $("inst").style.display === "none"; $("inst").style.display = h ? "" : "none"; $("instArrow").textContent = h ? "(click to hide)" : "(click to show)"; cm && cm.refresh(); };
+
+$("go").onclick = async () => {
+  const saved = document.querySelector("input[name=src]:checked").value === "saved";
+  if (saved && !$("saved").value) return;
+  $("go").disabled = true;
+  $("busy").innerHTML = saved ? "Loading..." : `<span class="spinner"></span>Writing a fresh problem and checking its hidden tests against a reference solution. About a minute.`;
+  let r;
+  try { r = await post("/api/coding/start", saved ? { exercise: $("saved").value } : { topic: $("topic").value, difficulty: $("diff").value }); }
+  catch (e) { r = { error: "The local server is not running." }; }
+  $("go").disabled = false; $("busy").textContent = "";
+  if (r.error) { $("busy").innerHTML = `<span class="bad">${esc(r.error)}</span>`; return; }
+  startRoom(r);
+};
+
+function startRoom(r) {
+  S = { ...r, mins: Number($("mins").value), startAt: Date.now(), part: 1, phase: "room", events: [], chat: [], activity: [],
+    stats: { prompts: 0, edits: 0, runs: 0, hidden: 0, firstPromptAt: null, biggestEdit: 0 } };
+  $("ivLog").innerHTML = ""; $("aiLog").innerHTML = ""; $("outText").textContent = ""; $("box").value = ""; $("aiP").value = "";
+  $("title").textContent = r.title; $("aiMode").value = "plan";
+  $("ivAv").textContent = r.interviewer[0].toUpperCase(); $("ivName").textContent = r.interviewer;
+  $("meAv").textContent = (r.candidate[0] || "Y").toUpperCase(); $("meName").textContent = r.candidate;
+  $("runH").style.display = r.hidden ? "" : "none";
+  $("inst").innerHTML = `<div class="new">${md(r.parts[0])}</div>`;
+  show("room"); setupEditor(r.starter);
+  startCamera($("cam"), $("meTile"));
+  L.active = true; L.start();
+  ev("start", `problem=${r.title}`);
+  turn("[ROOM] The candidate has joined. Part 1 is on their screen. Greet them and begin.", true);
+}
+function ev(kind, text) { if (S) S.events.push({ t: mmss((Date.now() - S.startAt) / 1000), kind, text }); }
+
+/* editor */
+function setupEditor(starter) {
+  if (!cm) cm = CodeMirror($("ed"), { lineNumbers: true, mode: "python", theme: "material-darker", indentUnit: 4, tabSize: 4,
+    extraKeys: { Tab: c => c.execCommand("insertSoftTab") } });
+  docs = {}; marks = {};
+  for (const n of Object.keys(starter)) docs[n] = CodeMirror.Doc(starter[n], "python");
+  current = Object.keys(starter)[0];
+  cm.swapDoc(docs[current]); renderTabs();
+  setTimeout(() => cm.refresh(), 50);
+}
+function renderTabs() {
+  $("tabs").innerHTML = Object.keys(docs).map(n => `<div class="tab ${n === current ? "on" : ""}" data-n="${esc(n)}">${esc(n)}</div>`).join("");
+  document.querySelectorAll(".tab").forEach(t => t.onclick = () => { current = t.dataset.n; cm.swapDoc(docs[current]); renderTabs(); });
+}
+const allFiles = () => Object.fromEntries(Object.entries(docs).map(([n, d]) => [n, d.getValue()]));
+const numbered = () => Object.entries(allFiles()).map(([n, t]) => `--- ${n} ---\n` + t.split("\n").map((l, i) => `${String(i + 1).padStart(3)}  ${l}`).join("\n")).join("\n");
+
+/* interviewer */
+async function turn(message, fromRoom) {
+  inflight = true; $("thinking").textContent = S.interviewer + " is listening...";
+  if (!fromRoom) { addIv("me", message); ev("said", message); }
+  const activity = S.activity.splice(0).join("\n");
+  const full = `[t=${mmss((Date.now() - S.startAt) / 1000)}] [current part: ${S.part}] ${message}\n\n[ROOM] Activity since your last message:\n${activity || "(none)"}\n\n[ROOM] Their code now, with line numbers:\n${numbered()}`;
+  let r;
+  try { r = await post("/api/turn", { sid: S.sid, message: full }); } catch (e) { r = { text: "Lost the local server: " + e, error: true }; }
+  inflight = false; $("thinking").textContent = "";
+  if (S.phase !== "room") return;
+  if (r.error) { addIv("sys", "Error: " + String(r.text).slice(0, 300)); return; }
+  const text = r.text, ended = /\[\[END\]\]/.test(text), runH = /\[\[RUN_TESTS\]\]/.test(text);
+  [...text.matchAll(/\[\[REVEAL:(\d)\]\]/g)].forEach(m => reveal(Number(m[1])));
+  const clean = text.replace(/\[\[[A-Z_:0-9]+\]\]/g, "").trim();
+  if (clean) { addIv("iv", clean); ev("interviewer", clean); say(clean, ended); }
+  else if (ended) endInterview();
+  if (runH) runHidden(true);
+  if (L.pending()) L.arm();
+}
+function addIv(who, text) {
+  const d = document.createElement("div");
+  d.className = "m " + (who === "me" ? "me" : who === "sys" ? "sys" : "");
+  const label = who === "me" ? "You" : who === "sys" ? "" : S.interviewer;
+  d.innerHTML = (label ? `<div class="who">${esc(label)} &middot; ${mmss((Date.now() - S.startAt) / 1000)}</div>` : "") + "<div></div>";
+  d.lastChild.textContent = text;
+  $("ivLog").appendChild(d); $("ivLog").scrollTop = 1e9;
+}
+function reveal(n) {
+  if (n <= S.part || n > S.parts.length) return;
+  S.part = n;
+  $("inst").querySelectorAll(".new").forEach(x => x.classList.remove("new"));
+  $("inst").insertAdjacentHTML("afterbegin", `<div class="new">${md(S.parts[n - 1])}</div>`);
+  $("inst").style.display = ""; $("instArrow").textContent = "(click to hide)"; $("inst").scrollTop = 0; cm.refresh();
+  ev("reveal", "Part " + n);
+}
+function say(text, ended) {
+  Voice.speak(text, {
+    onStart: () => { L.paused = true; L.stop(); $("ivTile").classList.add("talk"); },
+    onEnd: () => { L.paused = false; $("ivTile").classList.remove("talk"); L.start(); if (ended) endInterview(); },
+  });
+}
+
+/* voice in */
+const L = Listener({ box: $("box"), interim: $("interim"), bar: $("sendbar"), silence: 3500,
+  canSend: () => !inflight && S && S.phase === "room", onSend: t => turn(t, false),
+  onHeard: () => { $("meTile").classList.add("talk"); clearTimeout(L.talkT); L.talkT = setTimeout(() => $("meTile").classList.remove("talk"), 900); } });
+L.onMuted = () => micUi();
+function micUi() { $("mic").textContent = L.on ? "Mute" : "Unmute"; $("mic").classList.toggle("off", !L.on); }
+$("mic").onclick = () => { L.on = !L.on; micUi(); L.on ? L.start() : L.stop(); };
+$("camBtn").onclick = () => {
+  const s = $("cam").srcObject; if (!s) return startCamera($("cam"), $("meTile"));
+  const t = s.getVideoTracks()[0]; t.enabled = !t.enabled;
+  $("meTile").classList.toggle("live", t.enabled); $("camBtn").textContent = t.enabled ? "Stop video" : "Start video"; $("camBtn").classList.toggle("off", !t.enabled);
+};
+speechSynthesis.onvoiceschanged = () => Voice.pick(/Andrew|Brian|Guy|Davis|Ava/); Voice.pick(/Andrew|Brian|Guy|Davis|Ava/);
+
+/* agent */
+function addAi(who, text, cls) {
+  const d = document.createElement("div");
+  d.className = "m " + (cls || "") + (who === "me" ? " me" : "");
+  d.innerHTML = `<div class="who">${who === "me" ? "You" : "Agent"}${cls === "edit" ? "" : " &middot; " + mmss((Date.now() - S.startAt) / 1000)}</div><div></div>`;
+  d.lastChild.textContent = text;
+  $("aiLog").appendChild(d); $("aiLog").scrollTop = 1e9;
+}
+async function sendAgent() {
+  const prompt = $("aiP").value.trim();
+  if (!prompt || agentBusy || !S || S.phase !== "room") return;
+  const mode = $("aiMode").value;
+  $("aiP").value = ""; agentBusy = true; $("agentBusy").textContent = "Agent is working. Good time to say what you expect it to do.";
+  addAi("me", `[${mode}] ${prompt}`);
+  S.stats.prompts++; S.stats.firstPromptAt ??= Date.now() - S.startAt;
+  ev("prompt", `[${mode}] ${prompt}`); S.activity.push(`They prompted the agent in ${mode} mode: ${prompt}`);
+  let r;
+  try { r = await post("/api/agent", { mode, prompt, files: allFiles(), history: S.chat }); } catch (e) { r = { error: true, text: String(e) }; }
+  agentBusy = false; $("agentBusy").textContent = "";
+  if (!S || S.phase !== "room") return;
+  if (r.error) { addAi("agent", "The agent stalled: " + String(r.text).slice(0, 200)); return; }
+  S.chat.push({ who: "candidate", text: prompt });
+  if (r.text) { addAi("agent", r.text); S.chat.push({ who: "agent", text: r.text }); }
+  ev("agent", r.text || "(no text)");
+  for (const [name, text] of Object.entries(r.files || {})) {
+    if (!docs[name]) docs[name] = CodeMirror.Doc("", "python");
+    docs[name].setValue(text);   // stays in undo history, so Ctrl+Z reverses an edit
+    (marks[name] || []).forEach(h => docs[name].removeLineClass(h, "background", "ai-line"));
+    marks[name] = (r.marks[name] || []).map(l => docs[name].addLineClass(l, "background", "ai-line"));
+    const sm = r.summary.find(s => s.file === name), line = `${name}: +${sm.added} -${sm.removed}`;
+    addAi("agent", line + " (yellow lines)", "edit");
+    S.stats.edits++; S.stats.biggestEdit = Math.max(S.stats.biggestEdit, sm.added);
+    ev("edit", line); S.activity.push(`The agent edited ${line}.`);
+    current = name; cm.swapDoc(docs[name]);
+  }
+  renderTabs();
+}
+$("aiP").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendAgent(); } });
+
+/* running code */
+$("runT").onclick = async () => {
+  if (!S) return;
+  $("outText").textContent = "Running your tests...";
+  const r = await post("/api/run", { files: allFiles() });
+  $("outText").textContent = r.output || "(no output)"; $("outText").scrollTop = 1e9;
+  S.stats.runs++;
+  const tail = r.output.trim().split("\n").slice(-1)[0];
+  ev("run_tests", `${tail}\n${r.output.slice(-1500)}`); S.activity.push(`They ran their own tests: ${tail}`);
+};
+async function runHidden(fromInterviewer) {
+  $("outText").innerHTML = `<span class="spinner"></span>${esc(S.interviewer)} is running the hidden tests...`;
+  const { results, none } = await post("/api/hidden", { sid: S.sid, files: allFiles(), part: S.part });
+  if (none) { $("outText").textContent = "This problem has no hidden tests. Your interviewer will read your code instead."; return; }
+  S.stats.hidden++;
+  const passed = results.filter(x => x.ok).length;
+  $("outText").innerHTML = `<b>Hidden tests: ${passed}/${results.length} passed</b>\n` + results.map(x =>
+    `<span class="${x.ok ? "pass" : "fail"}">${x.ok ? "pass" : "FAIL"}</span> ${esc(x.doc || x.name)}${x.ok ? "" : "  " + esc(x.detail)}`).join("\n");
+  $("outText").scrollTop = 0;
+  const failed = results.filter(x => !x.ok).map(x => `${x.doc || x.name}: ${x.detail}`);
+  ev("hidden", `${passed}/${results.length}. Failed: ${failed.join("; ") || "none"}`);
+  if (fromInterviewer) {
+    const wait = () => inflight ? setTimeout(wait, 400) : turn(`[ROOM] Hidden test results for part ${S.part}: ${passed}/${results.length} passed. Failures: ${failed.join("; ") || "none"}`, true);
+    wait();
+  }
+}
+$("runH").onclick = () => { if (S && !inflight) turn("Could you run the hidden tests?", false); };
+
+setInterval(() => {
+  if (!S || S.phase !== "room") return;
+  const el = (Date.now() - S.startAt) / 1000;
+  $("clock").textContent = mmss(el); $("clock").classList.toggle("over", el > S.mins * 60);
+}, 500);
+setInterval(() => {
+  if (S?.phase === "room") post("/api/save", { name: `coding_autosave_${S.sid}`, events: S.events, files: allFiles(), stats: S.stats }).catch(() => {});
+}, 15000);
+
+/* end and report */
+$("end").onclick = () => { if (S && S.phase === "room") endInterview(); };
+async function endInterview() {
+  if (!S || S.phase !== "room") return;
+  S.phase = "report"; L.active = false; L.stop(); L.reset(); speechSynthesis.cancel();
+  show("report"); $("again").disabled = true;
+  const st = S.stats, minutes = ((Date.now() - S.startAt) / 60000).toFixed(1);
+  const fp = st.firstPromptAt == null ? "never" : mmss(st.firstPromptAt / 1000);
+  const tiles = statTiles([[minutes + " min", "length"], [fp, "first prompt at"], [st.prompts, "prompts"], [st.biggestEdit, "biggest single edit (lines)"], [st.runs, "test runs"], ["Part " + S.part, "reached"]]);
+  $("rep").innerHTML = tiles + `<p><span class="spinner"></span>Grading. This takes about a minute.</p>`;
+  const log = S.events.map(e => `[${e.t}] ${e.kind.toUpperCase()}: ${e.text}`).join("\n");
+  const message = `Length ${minutes} minutes of ${S.mins}, reached Part ${S.part} of ${S.parts.length}. First prompt at ${fp}. ${st.prompts} prompts, ${st.edits} agent edits, biggest single edit ${st.biggestEdit} lines, ${st.runs} runs of their own tests, ${st.hidden} hidden test runs. Previous scores: ${past.map(h => h.score).join(", ") || "none, this is the first"}.\n\nSESSION LOG:\n${log}\n\nFINAL CODE:\n${numbered()}`;
+  let r;
+  try { r = await post("/api/grade", { sid: S.sid, message }); } catch (e) { r = { text: "Grading failed: " + e, error: true }; }
+  const { score, verdict, body } = splitReport(r.text || "");
+  $("rep").innerHTML = (r.error ? `<p class="bad">${esc(r.text)}</p>` : `<div class="score">${score ?? "?"}<small> / 10</small></div><p>${esc(verdict)}</p>`) + tiles + md(body);
+  const name = `coding_${stamp(new Date(S.startAt))}_${S.id}`;
+  const report = `# ${S.title}, ${stamp(new Date(S.startAt)).replace("_", " ")}\n\nSCORE: ${score}/10\nVERDICT: ${verdict}\n\n${body}\n\n## Session log\n\n${log}\n\n## Final code\n\n\`\`\`\n${numbered()}\n\`\`\`\n`;
+  await post("/api/save", { name, room: "coding", exercise: S.id, score, stats: st, events: S.events, files: allFiles(), report }).catch(() => {});
+  $("again").disabled = false;
+}
+
+show("start"); load();
+</script>
+</body>
+</html>
