@@ -312,8 +312,11 @@ async function sendAgent() {
     addAi("agent", line + " (yellow lines)", "edit");
     S.stats.edits++; S.stats.biggestEdit = Math.max(S.stats.biggestEdit, sm.added);
     ev("edit", line); S.activity.push(`The agent edited ${line}.`);
-    current = name; cm.swapDoc(docs[name]);
   }
+  // Land on the code it changed, not its tests.
+  const touched = Object.keys(r.files || {});
+  const show = touched.find(n => !n.startsWith("test_")) || touched[0];
+  if (show) { current = show; cm.swapDoc(docs[show]); }
   renderTabs();
 }
 $("aiP").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendAgent(); } });
