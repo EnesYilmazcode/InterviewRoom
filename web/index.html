@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interview Room</title>
+<link rel="stylesheet" href="/web/style.css">
+<style>
+.rooms { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 18px 0 6px; }
+@media (max-width: 700px) { .rooms { grid-template-columns: 1fr; } }
+.room { display: block; padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; text-decoration: none; color: var(--text); background: var(--panel2); }
+.room:hover { border-color: var(--blue); }
+.room b { font-size: 16px; display: block; margin-bottom: 4px; }
+.room span { color: var(--dim); font-size: 13px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.two input { width: 100%; }
+#saved { font-size: 13px; color: var(--green); }
+details summary { cursor: pointer; color: var(--dim); font-size: 14px; margin-top: 18px; }
+</style>
+</head>
+<body>
+<section class="screen scroll on">
+  <div class="card">
+    <h1>Interview Room</h1>
+    <p>Practice interviews with an AI interviewer that talks, listens, and grades you at the end. It runs on your own Claude Code or Codex sign-in, so there is no API key and nothing to pay per call.</p>
+    <div class="rooms">
+      <a class="room" href="/call"><b>Interview call</b><span>A video call: recruiter screen, behavioral round, project deep dive. Voice in, voice out, your camera on.</span></a>
+      <a class="room" href="/coding"><b>AI-assisted coding</b><span>A shared editor with a coding agent beside it. A multi-part problem, tests, a walkthrough of your code, and a report.</span></a>
+    </div>
+
+    <details id="prof">
+      <summary>Your profile: tell the interviewer who you are (stays on this computer)</summary>
+      <div class="two">
+        <div><label>Your name</label><input id="name"></div>
+        <div><label>Interviewer's name</label><input id="interviewer" placeholder="Jordan"></div>
+        <div><label>Role you are practicing for</label><input id="role"></div>
+        <div><label>Company (optional)</label><input id="company" placeholder="Leave blank for a generic company"></div>
+      </div>
+      <label>Your background: paste your resume as text</label>
+      <textarea id="background" rows="9"></textarea>
+      <label>What you know about the company (optional): products, values, the team</label>
+      <textarea id="company_notes" rows="3"></textarea>
+      <div class="row"><button id="save">Save profile</button><span id="saved"></span></div>
+    </details>
+  </div>
+</section>
+<script src="/web/common.js"></script>
+<script>
+const F = ["name", "interviewer", "role", "company", "background", "company_notes"];
+fetch("/api/profile").then(r => r.json()).then(p => {
+  F.forEach(k => { $(k).value = p[k] || ""; });
+  if (!p.saved) { $("prof").open = true; $("name").value = ""; $("background").value = ""; $("background").placeholder = "School, experience, projects, numbers you are proud of. The interviewer asks about it, and the report checks your answers against it."; }
+});
+$("save").onclick = async () => {
+  await post("/api/profile", Object.fromEntries(F.map(k => [k, $(k).value])));
+  $("saved").textContent = "Saved to profile.json";
+  setTimeout(() => $("saved").textContent = "", 2500);
+};
+</script>
+</body>
+</html>
