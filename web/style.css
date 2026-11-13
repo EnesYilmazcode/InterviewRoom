@@ -54,7 +54,7 @@ label { display: block; font-size: 13px; color: var(--dim); margin: 12px 0 4px; 
 .rep h2 { font-size: 17px; margin: 22px 0 6px; }
 .rep h3 { font-size: 15px; margin: 16px 0 4px; }
 .rep p, .rep li { color: #dde0e4; }
-.rep ul { padding-left: 20px; margin: 6px 0; }
+.rep ul, .rep ol { padding-left: 20px; margin: 6px 0; }
 .rep code { font-family: Consolas, monospace; font-size: 13px; background: #2c2f34; padding: 0 4px; border-radius: 3px; }
 .rep pre { background: #121316; padding: 10px 12px; border-radius: 8px; overflow: auto; font: 12px/1.45 Consolas, monospace; }
 .rep blockquote { margin: 8px 0; padding: 8px 12px; border-left: 3px solid var(--green); background: #1a2a1f; color: #e6f5ea; border-radius: 0 6px 6px 0; }

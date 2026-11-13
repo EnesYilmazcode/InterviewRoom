@@ -102,29 +102,34 @@ function statTiles(items) {
   return `<div class="stats">${items.map(([v, k]) => `<div class="stat"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join("")}</div>`;
 }
 
-/* A small markdown renderer for the report: headings, bullets, bold, code, and quotes. */
+/* A small markdown renderer for reports and agent replies: headings, lists, bold, code, and quotes. */
 function md(s) {
   const inline = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>");
-  let html = "", list = false, code = false, buf = [];
+  let html = "", list = "", code = false, buf = [];
+  const close = () => { if (list) { html += `</${list}>`; list = ""; } };
   for (const raw of s.split("\n")) {
     if (raw.trim().startsWith("```")) {
-      if (code) { html += `<pre>${esc(buf.join("\n"))}</pre>`; buf = []; }
+      if (code) { html += `<pre>${esc(buf.join("\n"))}</pre>`; buf = []; } else close();
       code = !code; continue;
     }
     if (code) { buf.push(raw); continue; }
-    const l = raw.trim();
-    if (!/^[-*] /.test(l) && list) { html += "</ul>"; list = false; }
+    const l = raw.trim(), bullet = /^[-*] /.test(l), num = l.match(/^\d+[.)] (.*)/);
+    if (!bullet && !num) close();
     if (!l) continue;
-    if (l.startsWith("### ")) html += `<h3>${inline(l.slice(4))}</h3>`;
+    if (bullet || num) {
+      const want = bullet ? "ul" : "ol";
+      if (list !== want) { close(); html += `<${want}>`; list = want; }
+      html += `<li>${inline(bullet ? l.slice(2) : num[1])}</li>`;
+    } else if (l.startsWith("### ")) html += `<h3>${inline(l.slice(4))}</h3>`;
     else if (l.startsWith("## ")) html += `<h2>${inline(l.slice(3))}</h2>`;
     else if (l.startsWith("# ")) html += `<h2>${inline(l.slice(2))}</h2>`;
-    else if (/^[-*] /.test(l)) { if (!list) { html += "<ul>"; list = true; } html += `<li>${inline(l.slice(2))}</li>`; }
     else if (l.startsWith(">")) {
       const t = l.replace(/^>\s?/, ""), said = /^said:/i.test(t);
       html += `<blockquote class="${said ? "said" : ""}">${inline(said ? "You said: " + t.replace(/^said:\s*/i, "") : t)}</blockquote>`;
     } else html += `<p>${inline(l)}</p>`;
   }
-  return html + (list ? "</ul>" : "");
+  close();
+  return html;
 }
 
 function splitReport(text) {
