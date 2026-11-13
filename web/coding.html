@@ -315,8 +315,8 @@ async function sendAgent() {
   }
   // Land on the code it changed, not its tests.
   const touched = Object.keys(r.files || {});
-  const show = touched.find(n => !n.startsWith("test_")) || touched[0];
-  if (show) { current = show; cm.swapDoc(docs[show]); }
+  const land = touched.find(n => !n.startsWith("test_")) || touched[0];
+  if (land) { current = land; cm.swapDoc(docs[land]); }
   renderTabs();
 }
 $("aiP").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendAgent(); } });
