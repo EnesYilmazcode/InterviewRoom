@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interview Call</title>
+<link rel="stylesheet" href="/web/style.css">
+<style>
+#call { flex-direction: column; }
+.top { display: flex; align-items: center; gap: 14px; padding: 8px 16px; font-size: 13px; color: var(--dim); flex: none; }
+.top .rec { color: var(--red); }
+#clock { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text); }
+#clock.over { color: var(--amber); }
+.stage { flex: 1; display: flex; gap: 10px; padding: 0 12px 10px; min-height: 0; }
+.tiles { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-content: center; min-width: 0; }
+@media (max-width: 900px) { .tiles { grid-template-columns: 1fr; } .side { display: none; } }
+#caption { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); width: 86%; text-align: center; font-size: 16px; background: #000c; padding: 6px 12px; border-radius: 6px; display: none; }
+.side { width: 360px; flex: none; background: var(--panel); border-radius: 10px; display: flex; flex-direction: column; min-height: 0; }
+.side.hide { display: none; }
+.side h3 { margin: 0; padding: 10px 14px; font-size: 14px; border-bottom: 1px solid var(--line); }
+#log { flex: 1; overflow: auto; padding: 4px 14px 10px; min-height: 0; font-size: 14px; }
+.bar { display: flex; justify-content: center; gap: 10px; padding: 10px; background: #111215; flex: none; }
+.bar button { background: #2b2d31; min-width: 110px; }
+.bar button.off { background: #5a1d1d; }
+.bar #end { background: var(--red); }
+</style>
+</head>
+<body>
+
+<section id="start" class="screen scroll">
+  <div class="card">
+    <a class="back" href="/">&larr; Rooms</a>
+    <h1>Interview call</h1>
+    <p>Pick a round and join. Your interviewer talks; you just answer out loud. When you stop for about 3 seconds your answer is sent, or type and press Enter. At the end you get a score, a breakdown of every answer, and stronger versions written in your own voice.</p>
+    <div class="modes" id="modes"></div>
+    <div class="checks" id="checks"></div>
+    <div class="row">
+      <button id="go">Join call</button>
+      <button class="ghost" id="close">Close</button>
+    </div>
+    <div class="hist" id="hist"></div>
+  </div>
+</section>
+
+<section id="call" class="screen">
+  <div class="top"><span class="rec">&#9679; REC</span><span id="calltitle"></span><span id="clock">00:00</span></div>
+  <div class="stage">
+    <div class="tiles">
+      <div class="tile" id="ivTile"><div class="av" id="ivAv">J</div><span class="name" id="ivName"></span><div id="caption"></div></div>
+      <div class="tile" id="meTile"><div class="av me" id="meAv"></div><video id="cam" autoplay muted playsinline></video><span class="name" id="meName"></span></div>
+    </div>
+    <div class="side" id="side">
+      <h3>Transcript</h3>
+      <div id="log"></div>
+      <div class="thinking" id="thinking"></div>
+      <div class="say">
+        <div class="interim" id="interim"></div>
+        <textarea id="box" rows="3" placeholder="Just talk. Or type and press Enter."></textarea>
+        <div class="sendbar" id="sendbar"></div>
+      </div>
+    </div>
+  </div>
+  <div class="bar">
+    <button id="mic">Mute</button>
+    <button id="camBtn">Stop video</button>
+    <button id="ccBtn" class="off">Captions</button>
+    <button id="sideBtn">Hide transcript</button>
+    <button id="end">End call</button>
+  </div>
+</section>
+
+<section id="report" class="screen scroll">
+  <div class="card">
+    <div class="rep" id="rep"></div>
+    <div class="row">
+      <button id="again" disabled>Try again</button>
+      <button class="ghost" id="quit">Close</button>
+    </div>
+  </div>
+</section>
+
+<script src="/web/common.js"></script>
+<script>
+let MODES = [], modeSel = "screen", past = [], S = null, inflight = false, cc = false;
+
+/* start screen */
+function renderStart() {
+  $("modes").innerHTML = MODES.map(m => `<div class="mode ${modeSel === m.id ? "sel" : ""}" data-id="${m.id}"><b>${esc(m.name)} <span>&middot; ${m.mins} min</span></b><span>${esc(m.desc)}</span></div>`).join("");
+  document.querySelectorAll(".mode").forEach(el => el.onclick = () => { modeSel = el.dataset.id; renderStart(); });
+  const checks = [[L.supported, L.supported ? "Speech transcription available" : "No speech recognition in this browser, so you'll type (use Chrome or Edge)"],
+    [!!Voice.voice, Voice.voice ? `Interviewer voice: ${Voice.voice.name}` : "Text-to-speech voice loading"]];
+  $("checks").innerHTML = checks.map(([ok, t]) => `<div class="${ok ? "ok" : "bad"}">${ok ? "&#10003;" : "&#10007;"} ${esc(t)}</div>`).join("");
+  $("hist").innerHTML = past.length ? "Past calls: " + past.map(h => `${esc(h.name.replace(/_/g, " "))} <b>${h.score}/10</b>`).join(" &middot; ") : "";
+}
+async function load() {
+  MODES = await (await fetch("/api/modes")).json();
+  try { past = await (await fetch("/api/history?room=call")).json(); } catch (e) { past = []; }
+  renderStart();
+}
+
+$("go").onclick = async () => {
+  $("go").disabled = true;
+  const r = await post("/api/call/start", { mode: modeSel }).catch(() => null);
+  $("go").disabled = false;
+  if (!r) { $("checks").insertAdjacentHTML("beforeend", `<div class="bad">&#10007; The local server is not running.</div>`); return; }
+  S = { ...r, startAt: Date.now(), log: [], phase: "call" };
+  $("log").innerHTML = ""; $("box").value = "";
+  $("ivAv").textContent = r.interviewer[0].toUpperCase(); $("ivName").textContent = r.interviewer + (r.company ? ` (${r.company})` : "");
+  $("meAv").textContent = (r.candidate[0] || "Y").toUpperCase(); $("meName").textContent = r.candidate;
+  $("calltitle").textContent = `${r.mode.name}${r.company ? " - " + r.company : ""}`;
+  show("call");
+  startCamera($("cam"), $("meTile"));
+  L.active = true; L.start();
+  addMsg("sys", r.interviewer + " is joining...");
+  turn("[ROOM] The candidate just joined the call. Greet them and begin.", true);
+};
+$("close").onclick = $("quit").onclick = () => { post("/api/quit"); setTimeout(() => window.close(), 300); };
+$("again").onclick = () => { show("start"); load(); };
+
+/* turns */
+async function turn(message, fromRoom) {
+  inflight = true; $("thinking").textContent = S.interviewer + " is listening...";
+  if (!fromRoom) addMsg("me", message);
+  let r;
+  try { r = await post("/api/turn", { sid: S.sid, message: `[t=${mmss((Date.now() - S.startAt) / 1000)}] ${message}` }); }
+  catch (e) { r = { text: "Lost the local server: " + e, error: true }; }
+  inflight = false; $("thinking").textContent = "";
+  if (S.phase !== "call") return;
+  if (r.error) { addMsg("sys", "Error: " + String(r.text).slice(0, 300)); return; }
+  const ended = /\[\[END\]\]/.test(r.text);
+  const clean = r.text.replace(/\[\[[A-Z]+\]\]/g, "").trim();
+  if (clean) { addMsg("iv", clean); say(clean, ended); }
+  else if (ended) endCall();
+  if (L.pending()) L.arm();
+}
+function addMsg(who, text) {
+  const at = Date.now() - S.startAt;
+  if (who !== "sys") S.log.push({ who, text, at });
+  const d = document.createElement("div");
+  d.className = "m " + (who === "me" ? "me" : who === "sys" ? "sys" : "");
+  const label = who === "me" ? "You" : who === "sys" ? "" : S.interviewer;
+  d.innerHTML = (label ? `<div class="who">${esc(label)} &middot; ${mmss(at / 1000)}</div>` : "") + "<div></div>";
+  d.lastChild.textContent = text;
+  $("log").appendChild(d); $("log").scrollTop = 1e9;
+}
+function say(text, ended) {
+  Voice.speak(text, {
+    onStart: () => { L.paused = true; L.stop(); $("ivTile").classList.add("talk"); if (cc) { $("caption").textContent = text; $("caption").style.display = "block"; } },
+    onEnd: () => { L.paused = false; $("ivTile").classList.remove("talk"); $("caption").style.display = "none"; L.start(); if (ended) endCall(); },
+  });
+}
+
+/* voice in */
+const L = Listener({ box: $("box"), interim: $("interim"), bar: $("sendbar"), silence: 3000,
+  canSend: () => !inflight && S && S.phase === "call", onSend: t => turn(t, false),
+  onHeard: () => { $("meTile").classList.add("talk"); clearTimeout(L.talkT); L.talkT = setTimeout(() => $("meTile").classList.remove("talk"), 900); } });
+L.onMuted = () => micUi();
+function micUi() { $("mic").textContent = L.on ? "Mute" : "Unmute"; $("mic").classList.toggle("off", !L.on); }
+$("mic").onclick = () => { L.on = !L.on; micUi(); L.on ? L.start() : L.stop(); };
+$("camBtn").onclick = () => {
+  const s = $("cam").srcObject; if (!s) return startCamera($("cam"), $("meTile"));
+  const t = s.getVideoTracks()[0]; t.enabled = !t.enabled;
+  $("meTile").classList.toggle("live", t.enabled); $("camBtn").textContent = t.enabled ? "Stop video" : "Start video"; $("camBtn").classList.toggle("off", !t.enabled);
+};
+$("ccBtn").onclick = () => { cc = !cc; $("ccBtn").classList.toggle("off", !cc); };
+$("sideBtn").onclick = () => { const h = $("side").classList.toggle("hide"); $("sideBtn").textContent = h ? "Show transcript" : "Hide transcript"; };
+
+speechSynthesis.onvoiceschanged = () => { Voice.pick(/Ava|Aria|Jenny|Emma|Andrew|Brian/); if (!S || S.phase !== "call") renderStart(); };
+Voice.pick(/Ava|Aria|Jenny|Emma|Andrew|Brian/);
+
+setInterval(() => {
+  if (!S || S.phase !== "call") return;
+  const el = (Date.now() - S.startAt) / 1000;
+  $("clock").textContent = mmss(el); $("clock").classList.toggle("over", el > S.mode.mins * 60);
+}, 500);
+
+/* end and report */
+$("end").onclick = () => { if (S && S.phase === "call") endCall(); };
+async function endCall() {
+  if (S.phase !== "call") return;
+  S.phase = "report"; L.active = false; L.stop(); L.reset(); speechSynthesis.cancel();
+  if ($("box").value.trim()) addMsg("me", $("box").value.trim());
+  show("report"); $("again").disabled = true;
+  const st = deliveryStats(S.log.filter(m => m.who === "me").map(m => m.text), S.startAt);
+  const top = st.fillers.slice(0, 3).map(f => `"${f[0]}" ${f[1]}`).join(", ") || "none";
+  const tiles = statTiles([[st.minutes + " min", "call length"], [st.avg, "avg words per answer"], [st.longest, "longest answer (words)"], [st.fillerTotal, "fillers: " + top]]);
+  $("rep").innerHTML = tiles + `<p><span class="spinner"></span>Grading your call. This takes about a minute.</p>`;
+  const transcript = S.log.map(m => `[${mmss(m.at / 1000)}] ${m.who === "me" ? "CANDIDATE" : S.interviewer.toUpperCase()}: ${m.text}`).join("\n");
+  const message = `Round: ${S.mode.name}. Call length ${st.minutes} minutes.
+Delivery stats from their transcribed speech: ${st.turns} answers, ${st.words} words, average ${st.avg} words per answer, longest ${st.longest} words. Filler words: ${st.fillers.map(f => `"${f[0]}" x${f[1]}`).join(", ") || "none detected"}.
+Previous scores in this room: ${past.map(h => h.score).join(", ") || "none, this is the first"}.
+
+TRANSCRIPT:
+${transcript || "(empty: the call ended immediately)"}`;
+  let r;
+  try { r = await post("/api/grade", { sid: S.sid, message }); } catch (e) { r = { text: "Grading failed: " + e, error: true }; }
+  const { score, verdict, body } = splitReport(r.text || "");
+  $("rep").innerHTML = (r.error ? `<p class="bad">${esc(r.text)}</p>` : `<div class="score">${score ?? "?"}<small> / 10</small></div><p>${esc(verdict)}</p>`) + tiles + md(body);
+  const name = `call_${stamp(new Date(S.startAt))}_${S.mode.id}`;
+  const report = `# ${S.mode.name}, ${stamp(new Date(S.startAt)).replace("_", " ")}\n\nSCORE: ${score}/10\nVERDICT: ${verdict}\n\n${body}\n\n## Transcript\n\n${transcript}\n`;
+  post("/api/save", { name, room: "call", mode: S.mode.id, score, stats: st, log: S.log, report });
+  $("again").disabled = false;
+}
+
+show("start"); load();
+</script>
+</body>
+</html>
