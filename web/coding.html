@@ -29,6 +29,12 @@ body { font-size: 14px; }
 .h { padding: 7px 12px; font-size: 12px; font-weight: 600; color: var(--dim); background: var(--panel); border-bottom: 1px solid var(--line); flex: none; display: flex; align-items: center; gap: 8px; }
 .log { flex: 1; overflow: auto; padding: 6px 12px; min-height: 0; }
 .m.edit { font-size: 12px; color: var(--amber); }
+.md { white-space: normal; }
+.md p, .md ul, .md pre { margin: 4px 0; }
+.md ul, .md ol { padding-left: 18px; }
+.md h2, .md h3 { font-size: 13px; margin: 8px 0 2px; }
+.md code { font-family: Consolas, monospace; font-size: 12px; background: #2c2f34; padding: 0 3px; border-radius: 3px; }
+.md pre { background: #121316; padding: 6px 8px; border-radius: 6px; overflow: auto; font: 12px/1.4 Consolas, monospace; white-space: pre; }
 #inst { flex: none; max-height: 36%; overflow: auto; background: var(--panel); border-bottom: 1px solid var(--line); padding: 8px 14px; }
 #inst h3 { margin: 10px 0 4px; font-size: 14px; }
 #inst h3:first-child { margin-top: 2px; }
@@ -277,7 +283,8 @@ function addAi(who, text, cls) {
   const d = document.createElement("div");
   d.className = "m " + (cls || "") + (who === "me" ? " me" : "");
   d.innerHTML = `<div class="who">${who === "me" ? "You" : "Agent"}${cls === "edit" ? "" : " &middot; " + mmss((Date.now() - S.startAt) / 1000)}</div><div></div>`;
-  d.lastChild.textContent = text;
+  if (who === "me" || cls) d.lastChild.textContent = text;
+  else { d.lastChild.className = "md"; d.lastChild.innerHTML = md(text); }
   $("aiLog").appendChild(d); $("aiLog").scrollTop = 1e9;
 }
 async function sendAgent() {
