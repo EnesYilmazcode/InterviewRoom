@@ -3,6 +3,7 @@
 Serves the pages in web/, keeps each session's hidden state (prompts, answer keys) on this side,
 sends model turns through backend.py, and saves every session to sessions/.
 """
+import difflib
 import json
 import os
 import re
@@ -15,7 +16,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import backend
 import candidate
+import exercises
 import prompts_call
+import prompts_coding
+import runner
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(HERE, "web")
@@ -91,6 +95,65 @@ def call_start(b):
             "company": prof["company"]}
 
 
+def coding_start(b):
+    prof = candidate.load()
+    try:
+        ex = exercises.load(b["exercise"]) if b.get("exercise") else exercises.generate(b.get("topic", ""), b.get("difficulty", "medium"))
+    except (OSError, ValueError, KeyError, RuntimeError) as e:
+        return {"error": str(e)}
+    sid = str(uuid.uuid4())
+    STATE[sid] = {"room": "coding", "first": True, "exercise": ex,
+                  "system": prompts_coding.interviewer(ex, prof), "grader": prompts_coding.grader(ex, prof)}
+    return {"sid": sid, "id": ex["id"], "title": ex["title"], "parts": ex["parts"], "starter": ex["starter"],
+            "hidden": bool(ex["hidden"]), "interviewer": prof["interviewer"] or "Jordan", "candidate": prof["name"] or "You"}
+
+
+FILE_RE = re.compile(r'<file name="([^"]+)">\n?(.*?)\n?</file>', re.S)
+
+
+def fence_strip(text):
+    m = re.fullmatch(r"\s*```[a-zA-Z]*\n(.*?)\n?```\s*", text, re.S)
+    return m.group(1) if m else text
+
+
+def agent(b):
+    """One prompt to the coding agent. In edit mode it returns whole files; we diff them for highlighting."""
+    files_txt = "\n\n".join(f'<current name="{n}">\n{t}\n</current>' for n, t in b["files"].items())
+    hist = "\n".join(f"{h['who'].upper()}: {h['text']}" for h in b.get("history", [])[-16:])
+    message = (f"CONVERSATION SO FAR:\n{hist or '(none)'}\n\nCURRENT FILES:\n{files_txt}\n\n"
+               f"CANDIDATE'S NEW PROMPT ({b['mode']} mode):\n{b['prompt']}")
+    text, err = backend.ask(prompts_coding.agent(b["mode"]), message, "agent")
+    if err:
+        return {"error": True, "text": text}
+    changed = {}
+    if b["mode"] == "edit":
+        for name, content in FILE_RE.findall(text):
+            name = os.path.basename(name)
+            if name.endswith(".py") and name != "hidden_tests.py":
+                changed[name] = fence_strip(content).rstrip("\n") + "\n"
+    marks, summary = {}, []
+    for name, new in changed.items():
+        sm = difflib.SequenceMatcher(None, b["files"].get(name, "").splitlines(), new.splitlines())
+        lines, added, removed = [], 0, 0
+        for op, i1, i2, j1, j2 in sm.get_opcodes():
+            if op != "equal":
+                lines.extend(range(j1, j2))
+                added += j2 - j1
+                removed += i2 - i1
+        marks[name] = lines
+        summary.append({"file": name, "added": added, "removed": removed})
+    return {"error": False, "text": FILE_RE.sub("", text).strip(), "files": changed, "marks": marks, "summary": summary}
+
+
+def hidden(b):
+    st = STATE.get(b.get("sid"))
+    if not st or not st["exercise"].get("hidden"):
+        return {"results": [], "none": True}
+    ex = st["exercise"]
+    part = max(1, min(int(b.get("part", 1)), len(ex["parts"])))
+    return {"results": runner.run_hidden(b["files"], ex["hidden"], part, ex.get("skip", []))}
+
+
 def turn(b):
     st = STATE.get(b.get("sid"))
     if not st:
@@ -135,6 +198,10 @@ class H(BaseHTTPRequestHandler):
             self.file("index.html")
         elif path == "/call":
             self.file("call.html")
+        elif path == "/coding":
+            self.file("coding.html")
+        elif path == "/api/exercises":
+            self.send(200, exercises.listing())
         elif path.startswith("/web/"):
             self.file(path[5:])
         elif path == "/api/profile":
@@ -153,6 +220,10 @@ class H(BaseHTTPRequestHandler):
         routes = {
             "/api/profile": lambda: candidate.save(b),
             "/api/call/start": lambda: call_start(b),
+            "/api/coding/start": lambda: coding_start(b),
+            "/api/agent": lambda: agent(b),
+            "/api/run": lambda: runner.run_tests(b["files"]),
+            "/api/hidden": lambda: hidden(b),
             "/api/turn": lambda: turn(b),
             "/api/grade": lambda: grade(b),
             "/api/save": lambda: save(b) or {"ok": True},
