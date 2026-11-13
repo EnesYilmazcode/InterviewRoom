@@ -1,0 +1,12 @@
+# your own data stays on your machine
+profile.json
+sessions/
+exercises/*
+!exercises/README.md
+
+# browser profile the room launches with
+.chrome-profile/
+
+__pycache__/
+*.pyc
+*.tmp
